@@ -28,7 +28,6 @@ from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.dataset.sampler import AbstractSampler
 from verl.utils.import_utils import load_extern_type
 
-
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config):
     """Main entry point for PPO training with Hydra configuration management.
@@ -57,6 +56,7 @@ def run_ppo(config) -> None:
         ray.init(
             runtime_env=PPO_RAY_RUNTIME_ENV,
             num_cpus=config.ray_init.num_cpus,
+            num_gpus=8, # workaround ray cannot detect intel gpu due to lack of dpctl. I cannot install dpctl correctly from pip.
         )
 
     # Create a remote instance of the TaskRunner class, and
