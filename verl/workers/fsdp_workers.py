@@ -258,7 +258,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            local_path, trust_remote_code=trust_remote_code, # attn_implementation="flash_attention_2"
         )
 
         # patch for kimi-vl
@@ -607,6 +607,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 role="actor",
                 enable_activation_offload=self.config.model.get("enable_activation_offload", False),
             )
+            if self.rank == 0:
+                print("build model and optimizer for actor/rollout done")
 
             # get the original unwrapped module
             if fsdp_version(self.actor_module_fsdp) == 1:
@@ -628,11 +630,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.actor = DataParallelPPOActor(
                 config=self.config.actor, actor_module=self.actor_module_fsdp, actor_optimizer=self.actor_optimizer
             )
+            if self.rank == 0:
+                print(f"actor ddp done")
 
         if self._is_rollout:
             self.rollout, self.rollout_sharding_manager = self._build_rollout(
                 trust_remote_code=self.config.model.get("trust_remote_code", False)
             )
+            if self.rank == 0:
+                print(f"rollout {self.config.rollout.name} done")
 
         if self._is_ref:
             local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
@@ -652,6 +658,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 self.config.ref.use_remove_padding = use_remove_padding
                 self.config.ref.use_fused_kernels = use_fused_kernels
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
+            if self.rank == 0:
+                print(f"ref ddp done")
 
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
@@ -675,6 +683,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
                 checkpoint_config=checkpoint_contents,
             )
+        if self.rank == 0:
+            print(f"ActorRolloutRefWorker init done, role: {self.role}")
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="red", role="actor_update")
@@ -1021,7 +1031,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
         critic_model_config = AutoConfig.from_pretrained(
             local_path,
-            attn_implementation="flash_attention_2",
+            # attn_implementation="flash_attention_2",
             trust_remote_code=config.model.get("trust_remote_code", False),
         )
         critic_model_config.num_labels = 1
@@ -1188,6 +1198,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(
             self.config
         )
+        print("Critic model created")
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.critic_module)
@@ -1199,6 +1210,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.critic = DataParallelPPOCritic(
             config=self.config, critic_module=self.critic_module, critic_optimizer=self.critic_optimizer
         )
+        print("Critic ddp module created")
 
         self.flops_counter = FlopsCounter(self.critic_model_config)
         self.checkpoint_manager = FSDPCheckpointManager(
@@ -1208,6 +1220,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             processing_class=self.processor if self.processor is not None else self.tokenizer,
             checkpoint_config=self.config.checkpoint,
         )
+        print("Critic checkpoint manager created")
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     @DistProfiler.annotate(color="cyan")
@@ -1383,7 +1396,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                 pretrained_model_name_or_path=local_path,
                 config=model_config,
                 torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2",
+                # attn_implementation="flash_attention_2",
                 trust_remote_code=trust_remote_code,
             )
 
